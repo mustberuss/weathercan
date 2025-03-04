@@ -1,0 +1,111 @@
+---
+title: "Homogenizing ECCC Data from weathercan"
+author: "Russ Allen"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_document
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(cache = FALSE,
+                      fig.align = "center",
+                      fig.path = "figures/stations-",
+                      dpi = 200,
+                      fig.asp = 0.65, fig.width = 5,
+                      out.width = "80%",
+                      delay = 30)
+```
+
+ECCC weather stations are sometimes replaced, meaning that a new station id is created for data coming from the same location.
+It can be tricky to amalgamate data from these stations.   
+See the original discussion in [issue 17](https://github.com/ropensci/weathercan/issues/117)
+
+Here we'll take an initial look to see what, if anything, can be done
+programmatically to identify these locations.   
+Inspired by the two answers in a [gis.stackexchange post](https://gis.stackexchange.com/questions/437968/r-finding-closest-point-to-each-point-and-filtering-which-points-to-consider)
+
+```{r, message = FALSE}
+library(weathercan)
+library(tidyverse)
+library(sf)
+
+myData <- stations()
+
+# dedup on "station_id"
+unique_stations <- myData[!duplicated(myData[,c('station_id')]),]
+
+df <- st_as_sf(unique_stations, coords = c("lat", "lon")) 
+
+# Compute the pairwise distances.  
+dm <- st_distance(df)
+
+# Lets build an n x n grid to keep track of the pairwise distances
+n <- dim(dm)[[1]]
+tracking <- data.frame(expand.grid(i=1:n, j=1:n))
+tracking$distance <- c(dm)
+
+# add the two columns of station_ids, where the second answer added df$year
+tracking$stn_id.i = df$station_id[tracking$i]
+tracking$stn_id.j = df$station_id[tracking$j]
+
+# We only need to compare one way, distance(a, b) would be the same as 
+# distance (b, a) and we don't need to compare distance(a, a) 
+# so we'll only consider rows where i > j 
+
+tracking <- tracking[tracking$i > tracking$j,]
+dim(tracking)
+
+# so 38.8M comparisons?!!
+# Ok, so lets just look at the closest ones possible
+
+tracking <- tracking[tracking$distance == 0.00,]
+dim(tracking)
+
+# That's still more than I want to check by hand! Is there a weathercan intern?
+str(tracking)
+
+# quick sanity check, grab a few pairs of supposedly matching stations
+# The date ranges on the first pair don't overlap 
+for(k in 1:3) {
+  print(paste("Compare pair", k))
+  check_pair <- c(tracking$stn_id.i[[k]], tracking$stn_id.j[[k]])
+  str(unique_stations[unique_stations$station_id %in% check_pair,])
+}
+
+```
+Lets create a function that will help us investigate "close" stations. 
+
+```{r, message = FALSE}
+
+see_also_stations <- function(station_id) {
+  c(tracking[tracking$stn_id.i == station_id, "stn_id.j"],
+    tracking[tracking$stn_id.j == station_id, "stn_id.i"])
+}
+
+see_also_stations(tracking$stn_id.i[[1]])
+
+see_also_stations(tracking$stn_id.j[[1]])
+
+```
+
+One last quick check here to see if there are more than pairs in common.
+There's probably a cooler way to do this, but I'm dying to know the answer!
+
+```{r, message = FALSE}
+combined <- c(tracking$stn_id.i, tracking$stn_id.j)
+
+# for just getting the frequency distribution
+counts <- as.data.frame(combined) %>%
+  count(combined, sort = TRUE, name= "Code_frequency")
+
+head(counts)
+look_at <- see_also_stations(counts$combined[[1]])
+look_at
+
+# lets sort by evation to see if any of these could really 
+# be the same place
+compare <- unique_stations[unique_stations$station_id %in% look_at,] %>%
+  arrange(elev)
+
+str(compare)
+
+```

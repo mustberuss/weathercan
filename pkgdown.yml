@@ -8,9 +8,10 @@ articles:
   interpolate_data: interpolate_data.html
   normals: normals.html
   reproducibility: reproducibility.html
+  articles/station_data: station_data.html
   articles/tidyhydat: tidyhydat.html
   weathercan: weathercan.html
-last_built: 2025-03-01T06:28Z
+last_built: 2025-03-04T01:01Z
 urls:
   reference: https://docs.ropensci.org/weathercan/reference
   article: https://docs.ropensci.org/weathercan/articles
